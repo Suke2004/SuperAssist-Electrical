@@ -1,0 +1,29 @@
+# --- Environment ---
+.env
+.venv/
+venv/
+
+# --- Python ---
+__pycache__/
+*.pyc
+
+# --- VSCode ---
+.vscode/
+
+# --- Codebuff/Freebuff agent workspace ---
+.freebuff/
+
+# --- Build artifacts ---
+dist/
+build/
+*.spec
+# AI Provider configuration file with secret keys
+ai_providers.json
+
+# --- Runtime artifacts ---
+# Interview transcript exports (personal data, never commit)
+exports/
+# PowerPulse historian database
+cache/
+powerpulse_history.db
+powerpulse_history.db-*

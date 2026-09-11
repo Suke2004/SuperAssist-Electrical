@@ -1,0 +1,487 @@
+import { devLog } from './config.js';
+import liveInterviewUI from './live-interview.js';
+
+export function cleanElectricalTranscript(transcript) {
+    if (!transcript || typeof transcript !== 'string') return transcript;
+    return transcript
+        .replace(/\b(single|three|1|3|one|two)\s+fists?\b/gi, '$1 phase')
+        .replace(/\b(single|three|1|3|one|two)\s+faces?\b/gi, '$1 phase')
+        .replace(/\b(single|three|1|3|one|two)\s+faiths?\b/gi, '$1 phase')
+        .replace(/\bsplit\s+faces?\b/gi, 'split phase')
+        .replace(/\bfists?\s+transformer\b/gi, 'phase transformer')
+        .replace(/\bfaces?\s+transformer\b/gi, 'phase transformer')
+        .replace(/\bfists?\s+motor\b/gi, 'phase motor')
+        .replace(/\bfaces?\s+motor\b/gi, 'phase motor')
+        .replace(/\b(mode\s+)?(index|injection|infection|inductance|deduction)\s+motor\b/gi, 'induction motor')
+        .replace(/\b(sink\s*run\s*us|sink\s*runner|synch)\s+motor\b/gi, 'synchronous motor')
+        .replace(/\b(?:be\s+able|major|variable\s+frequent)\s+frequency\s+drive\b/gi, 'variable frequency drive')
+        .replace(/\b(?:be\s+able|major)\s+frequency\b/gi, 'variable frequency')
+        .replace(/\bVFT\b/g, 'VFD')
+        .replace(/\bBFDs?\b/gi, 'VFD')
+        .replace(/\b(my\s+chick|my\s+check|mike\s+check)\b/gi, 'mic check')
+        .replace(/\bckt\b/gi, 'circuit')
+        .replace(/\bequivalent\s+(ckt|circle|socket)\b/gi, 'equivalent circuit')
+        .replace(/\b(book\s*holes|buckles|buckholtz|book\s*holds)\s*(relay)?\b/gi, 'Buchholz relay')
+        .replace(/\b(moss\s*fat|most\s*fat|moss\s*fit|mosphet)\b/gi, 'MOSFET')
+        .replace(/\b(i\s*g\s*b\s*t|egbt)\b/gi, 'IGBT')
+        .replace(/\b(sleep|slit)\s+rings?\b/gi, 'slip ring')
+        .replace(/\b(girl|screw|square)\s+cage\b/gi, 'squirrel cage')
+        .replace(/\b(state\s+or|stayed\s+or|stater)\b/gi, 'stator')
+        .replace(/\b(wound\s+)?(router|rooter)\b/gi, '$1rotor')
+        .replace(/\b(arm\s+mature|armor\s+cher|armor\s+tour|our\s+mature)\b/gi, 'armature')
+        .replace(/\b(commuter|community\s+or|common\s+tater)\b/gi, 'commutator')
+        .replace(/\bcarbon\s+rushes\b/gi, 'carbon brushes')
+        .replace(/\bback\s+(em\s+if|in\s+my|am\s+f|mf)\b/gi, 'back EMF')
+        .replace(/\b(shunt|series)\s+(mood|mower)\b/gi, '$1 motor');
+}
+
+export class WebSocketHandler {
+    constructor(stateManager) {
+        this.stateManager = stateManager;
+        this.socket = null;
+        this.providerManager = null; // Direct reference to the ProviderManager
+        this.session_id = null;
+        this.reconnect_attempts = 0;
+        this.max_reconnect_attempts = 5;
+        this.is_intentionally_closing = false;
+        this.checks = {};
+        this.initializeCheckElements();
+    }
+
+    initializeCheckElements() {
+        this.checks = {
+            micPermission: document.getElementById('check-mic-permission'),
+            micSelection: document.getElementById('check-mic-selection'),
+            backend: document.getElementById('check-backend'),
+            deepgram: document.getElementById('check-deepgram'),
+            aiProvider: document.getElementById('check-ai-provider'),
+            aiSecondaryProvider: document.getElementById('check-ai-secondary-provider'),
+            visionProvider: document.getElementById('check-vision-provider'),
+            visionSecondaryProvider: document.getElementById('check-vision-secondary-provider'),
+        };
+    }
+
+    connect() {
+        return new Promise((resolve, reject) => {
+            this.is_intentionally_closing = false;
+            // Derive the host from the page origin. main.py picks a free port at
+            // startup and falls back off 8002 when it is busy, so a hardcoded port
+            // would break the socket exactly when the fallback kicks in.
+            const host = window.location.host || '127.0.0.1:8002';
+            const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            let url = `${scheme}//${host}/ws`;
+            if (this.session_id) {
+                url += `?session_id=${this.session_id}`;
+            }
+
+            this.updateCheckStatus(this.checks.backend, 'pending', 'Connecting...');
+            this.socket = new WebSocket(url);
+            this.stateManager.setSocket(this.socket);
+
+            // Store the promise's resolver to be called when session is confirmed.
+            this.resolveConnectionPromise = resolve;
+
+            // Clear any old listeners before attaching new ones
+            this.socket.onopen = null;
+            this.socket.onclose = null;
+            this.socket.onerror = null;
+            this.socket.onmessage = null;
+            
+            // Use addEventListener for all events for consistency and robustness.
+            this.socket.addEventListener('open', this.onOpen.bind(this));
+            this.socket.addEventListener('close', this.onClose.bind(this));
+            this.socket.addEventListener('error', (err) => {
+                this.onError(err);
+                reject(new Error("WebSocket connection failed."));
+            });
+            this.socket.addEventListener('message', this.onMessage.bind(this));
+        });
+    }
+
+    onOpen(event) {
+        console.log("[open] Connection established");
+        // This is now handled by the ProviderManager
+        // this.updateCheckStatus(this.checks.backend, 'success', 'Backend Connected');
+        this.reconnect_attempts = 0;
+    }
+
+    onClose(event) {
+        console.log(`[close] Connection closed. Intentional: ${this.is_intentionally_closing}`);
+        // This is now handled by the ProviderManager
+        // this.updateCheckStatus(this.checks.backend, 'error', 'Disconnected');
+        if (!this.is_intentionally_closing) {
+            this.handleReconnect();
+        }
+    }
+
+    onError(error) {
+        console.error(`[error] WebSocket error:`, error);
+        // This is now handled by the ProviderManager
+        // this.updateCheckStatus(this.checks.backend, 'error', 'Connection Failed');
+    }
+    
+    onMessage(event) {
+        const data = JSON.parse(event.data);
+        devLog("Received from backend:", data);
+
+        if (data.type === 'session_created') {
+            this.session_id = data.payload.session_id;
+            console.log(`🚀 New session started: ${this.session_id}`);
+            // Resolve the connection promise now that session is confirmed.
+            if (this.resolveConnectionPromise) {
+                this.resolveConnectionPromise();
+                this.resolveConnectionPromise = null; // Ensure it's only called once
+            }
+        } else if (data.type === 'session_resumed') {
+            console.log(`✅ Session resumed: ${data.payload.session_id}`);
+            liveInterviewUI.addMessage("Connection restored. Your session has been resumed.", "system-message");
+            // Also resolve the promise on resume.
+            if (this.resolveConnectionPromise) {
+                this.resolveConnectionPromise();
+                this.resolveConnectionPromise = null;
+            }
+        }
+        
+        this.handleMessage(data);
+    }
+
+    handleReconnect() {
+        if (this.reconnect_attempts < this.max_reconnect_attempts) {
+            this.reconnect_attempts++;
+            const delay = Math.pow(2, this.reconnect_attempts) * 1000;
+            console.log(`Attempting to reconnect in ${delay / 1000}s... (Attempt ${this.reconnect_attempts})`);
+            liveInterviewUI.addMessage(`Connection lost. Reconnecting... (Attempt ${this.reconnect_attempts})`, "system-error", true);
+            
+            setTimeout(() => this.connect(), delay);
+        } else {
+            console.error("Max reconnect attempts reached.");
+            liveInterviewUI.addMessage("Could not reconnect to the server. Please restart the interview.", "system-error");
+        }
+    }
+
+    disconnect() {
+        this.is_intentionally_closing = true;
+        if (this.socket) {
+            this.socket.close();
+        }
+        this.session_id = null; // Clear session on intentional disconnect
+    }
+
+    // --- All original message handlers go here ---
+    handleMessage(data) {
+        switch (data.type) {
+            case 'api_key_status':
+                this.handleApiKeyStatus(data.payload);
+                break;
+            case 'transcript_update':
+                this.handleTranscriptUpdate(data.payload);
+                break;
+            case 'ai_processing_started':
+                this.handleAiProcessingStarted(data.payload);
+                break;
+            case 'ai_answer_chunk':
+                this.handleAiAnswerChunk(data.payload);
+                break;
+            case 'ai_answer_reset':
+                this.handleAiAnswerReset();
+                break;
+            case 'ai_answer_complete':
+                this.handleAiAnswerComplete(data.payload);
+                break;
+            case 'preset_initialized':
+                this.handlePresetInitialized(data.payload);
+                break;
+            case 'preset_switched':
+                this.handlePresetSwitched(data.payload);
+                break;
+            case 'preset_switch_failed':
+                this.handlePresetSwitchFailed(data.payload);
+                break;
+            case 'vision_analysis_result':
+                this.handleVisionAnalysisResult(data.payload);
+                break;
+            case 'error':
+                this.handleError(data.payload);
+                break;
+            // Ignore session messages as they are handled in onMessage
+            case 'session_created':
+            case 'session_resumed':
+                break;
+            case 'session_reset_complete':
+                console.log('✅ Session reset confirmed by backend');
+                break;
+            default:
+                console.warn('Unknown message type:', data.type);
+        }
+    }
+
+    // ... (All other handle... methods from the original file)
+    // NOTE: This is a simplified representation. The actual file will contain the full implementations.
+    setProviderManager(manager) {
+        this.providerManager = manager;
+    }
+
+    handleApiKeyStatus(payload) {
+        // This is the crucial fix: Delegate the UI update to the ProviderManager,
+        // which now has a direct, guaranteed reference.
+        if (this.providerManager) {
+            this.providerManager.handleApiKeyStatus(payload);
+        } else {
+            console.error("Fatal Error: ProviderManager not injected into WebSocketHandler.");
+        }
+    }
+
+    handleTranscriptUpdate(payload) {
+        if (!payload || !payload.transcript) return;
+        const cleanedText = cleanElectricalTranscript(payload.transcript);
+        
+        // With diarization disabled, all speech comes from speaker 0 and should be labeled as Interviewer
+        if (payload.is_final) {
+            liveInterviewUI.addInterviewerQuestion(cleanedText, false);
+        } else {
+            liveInterviewUI.addInterviewerQuestion(cleanedText, true);
+        }
+    }
+    
+    handleAiProcessingStarted(payload) {
+        liveInterviewUI.startStreamingAIResponse(payload);
+    }
+
+    handleAiAnswerChunk(payload) {
+        // Reset marker from MultiLLMManager: the previous provider failed
+        // mid-stream and a fallback is about to stream a fresh answer.
+        if (payload && payload.chunk_type === 'reset') {
+            this.handleAiAnswerReset();
+            return;
+        }
+        liveInterviewUI.appendStreamingChunk(payload.chunk);
+    }
+
+    handleAiAnswerReset() {
+        liveInterviewUI.resetStreamingResponse();
+    }
+
+    handleAiAnswerComplete(payload) {
+        liveInterviewUI.finalizeStreamingResponse(payload);
+    }
+
+    handlePresetInitialized(payload) {
+        this.stateManager.updateState({
+            currentPreset: payload.current_preset,
+            availablePresets: payload.available_presets
+        });
+        if (window.presetManager) {
+            presetManager.updatePresetDisplay(payload.current_preset);
+            presetManager.updateHealthStatus(payload.health_status);
+        }
+    }
+
+    handlePresetSwitched(payload) {
+        this.stateManager.updateState({ currentPreset: payload.current_preset });
+        if (window.presetManager) {
+            presetManager.updatePresetDisplay(payload.current_preset);
+            presetManager.showSwitchNotification(payload);
+        }
+    }
+
+    handlePresetSwitchFailed(payload) {
+        if (window.presetManager) {
+            presetManager.showErrorNotification(payload.error, payload);
+        }
+    }
+    
+    handleVisionAnalysisResult(result) {
+        console.log('📸 Vision analysis result received:', result.success ? 'SUCCESS' : 'FAILED');
+        
+        // Hide processing status if it exists
+        if (this.hideVisionProcessingStatus) {
+            this.hideVisionProcessingStatus();
+        }
+        
+        // Resolve the promise in screenshot-service.js
+        if (window.visionAnalysisResolver) {
+            window.visionAnalysisResolver(result);
+            window.visionAnalysisResolver = null; // Clear the resolver
+        }
+        
+        // Display the result in the specialized vision UI
+        if (result.success && result.analysis) {
+            // Use the dedicated vision analysis method with proper metadata
+            const metadata = {
+                provider: result.provider,
+                model: result.model,
+                screenshotCount: result.screenshot_count,
+                languages: result.languages
+            };
+            liveInterviewUI.addVisionAnalysis(result.analysis, metadata);
+        } else if (!result.success && result.error) {
+            liveInterviewUI.addMessage(`❌ Vision analysis failed: ${result.error}`, "system-error");
+        }
+    }
+
+    handleError(payload) {
+        console.error("WebSocket error:", payload);
+        if (window.presetManager) {
+            presetManager.showErrorNotification(payload.message);
+        }
+        if (window.liveInterviewUI && liveInterviewUI.currentStreamingElement) {
+            liveInterviewUI.finalizeStreamingResponse({
+                error: payload.message || "Error processing request",
+                success: false
+            });
+        }
+    }
+
+    sendMessage(type, payload) {
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.send(JSON.stringify({ type, payload }));
+        } else {
+            console.error(`Cannot send message ${type}: WebSocket not connected.`);
+        }
+    }
+
+    sendAudioChunk(chunk, is_muted, speakerHint = 'system') {
+        if (window.muteManager?.isAudioPaused()) {
+            return;
+        }
+        if (is_muted && speakerHint === 'microphone') {
+            return;
+        }
+        this.sendMessage('audio_chunk', {
+            audio_b64: this.bytesToBase64(chunk),
+            is_muted: is_muted,
+            speaker_hint: speakerHint
+        });
+    }
+
+    /**
+     * Base64-encode a PCM buffer for transport.
+     *
+     * Sending the raw bytes as a JSON array of integers cost roughly 4 bytes of
+     * text per byte of audio; base64 costs 1.33. Encoded in slices because
+     * String.fromCharCode.apply exceeds the argument limit on large buffers.
+     */
+    bytesToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        const SLICE = 0x8000;
+        let binary = '';
+        for (let i = 0; i < bytes.length; i += SLICE) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + SLICE));
+        }
+        return btoa(binary);
+    }
+
+    startInterview() {
+        const state = this.stateManager.getState();
+        const initialMuteStatus = window.muteManager?.getMuteStatus() || { microphone: false, universal: false };
+        
+        const interviewPayload = {
+            sttLanguage: state.sttLanguage || 'en', // P1: transcription language
+            aiProvider: {
+                provider: state.selectedProvider.name,
+                model: state.selectedProvider.model
+            },
+            onboardingData: { ...state.onboardingData, selectedLanguages: state.selectedLanguages },
+            is_muted: initialMuteStatus.microphone,
+            is_universally_muted: initialMuteStatus.universal,
+            process_all_speakers: true,
+            aiSecondaryProvider: state.selectedSecondaryProvider.name ? {
+                provider: state.selectedSecondaryProvider.name,
+                model: state.selectedSecondaryProvider.model
+            } : null,
+            visionProvider: state.selectedVisionProvider.name ? {
+                provider: state.selectedVisionProvider.name,
+                model: state.selectedVisionProvider.model
+            } : null,
+            visionSecondaryProvider: state.selectedSecondaryVisionProvider.name ? {
+                provider: state.selectedSecondaryVisionProvider.name,
+                model: state.selectedSecondaryVisionProvider.model
+            } : null,
+        };
+        this.sendMessage('start_interview', interviewPayload);
+    }
+
+    endInterview() {
+        this.sendMessage('end_interview', {});
+        this.disconnect();
+    }
+
+    /**
+     * P4: live toggle between full answers and quick hints (Alt+G).
+     * Sends the new mode to the session; the backend prefixes the next prompt
+     * accordingly. Returns the mode that was just activated.
+     */
+    toggleAnswerMode() {
+        this.answerModeFull = this.answerModeFull === undefined ? true : !this.answerModeFull;
+        const generateFullAnswers = this.answerModeFull;
+        this.sendMessage('config_update', { generateFullAnswers });
+        console.log(`🎯 Answer mode -> ${generateFullAnswers ? 'full answers' : 'quick hints'}`);
+        return generateFullAnswers;
+    }
+
+    /**
+     * P3: request the turn-by-turn transcript export; the backend writes a
+     * local .txt file and returns its path for a user-facing notification.
+     */
+    async exportTranscript() {
+        if (!this.session_id) {
+            console.warn('No active session to export.');
+            return null;
+        }
+        try {
+            const response = await fetch('/api/export-transcript', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: this.session_id })
+            });
+            if (!response.ok) {
+                const detail = await response.json().catch(() => ({}));
+                console.warn('Transcript export failed:', detail.detail || response.status);
+                liveInterviewUI.addMessage(`⚠️ Transcript export failed: ${detail.detail || response.statusText}`, "system-error");
+                return null;
+            }
+            const result = await response.json();
+            liveInterviewUI.addMessage(`💾 Transcript saved (${result.turns} turns): ${result.path}`, "system-message");
+            return result.path;
+        } catch (err) {
+            console.error('Transcript export error:', err);
+            return null;
+        }
+    }
+    
+    switchPreset(presetKey) {
+        if (!this.stateManager.isLiveInterviewActive()) {
+            presetManager.showErrorNotification('Start the interview first.');
+            return;
+        }
+        this.sendMessage('switch_preset', { preset_key: presetKey });
+    }
+
+    updateCheckStatus(checkElement, status, text) {
+        if (!checkElement) {
+            devLog(`[updateCheckStatus] Warning: Attempted to update a null checkElement.`);
+            return;
+        }
+        const indicator = checkElement.querySelector('.indicator');
+        const textNode = Array.from(checkElement.childNodes).find(node =>
+            node.nodeType === Node.TEXT_NODE && node.textContent.trim() !== ''
+        );
+        if (indicator) {
+            indicator.textContent = status === 'success' ? '🟢' : status === 'error' ? '🔴' : '⚪';
+        }
+        if (textNode) {
+            textNode.nodeValue = ` ${text}`;
+        }
+        devLog(`[UI UPDATE] Set ${checkElement.id} to ${status}: ${text}`);
+    }
+
+    checkAllSystemsGo() {
+        // Delegate to ProviderManager which owns the UI elements
+        if (this.providerManager) {
+            return this.providerManager.checkAllSystemsGo();
+        } else {
+            console.error("Fatal Error: ProviderManager not injected into WebSocketHandler for checkAllSystemsGo.");
+            return false;
+        }
+    }
+}
