@@ -342,6 +342,21 @@ export class StateManager {
         return await screenshotService.captureScreenshot();
     }
 
+    addScreenshotFromDataUrl(dataUrl) {
+        if (!this.isLiveInterviewActive()) {
+            console.warn('⚠️ Screenshots only available during live interview');
+            if (window.presetManager) {
+                presetManager.showErrorNotification('Start the interview first before taking screenshots');
+            }
+            return false;
+        }
+        if (!this.appState.visionMode.isActive) {
+            console.log('👁️ Auto-activating vision mode for stealth screenshot');
+            this.toggleVisionMode();
+        }
+        return screenshotService.addFromDataUrl(dataUrl);
+    }
+
     async processScreenshots() {
         console.log('🎮 processScreenshots called (could be from global hotkey)');
         

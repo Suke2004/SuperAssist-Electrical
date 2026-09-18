@@ -192,7 +192,16 @@ class GlobalCommandMonitor:
             if command == 'toggle_vision_mode':
                 self._execute_browser_command('if (window.toggleVisionMode) { window.toggleVisionMode(); } else { console.warn("toggleVisionMode not available"); }')
             elif command == 'capture_screenshot':
-                self._execute_browser_command('if (window.captureScreenshot) { window.captureScreenshot(); } else { console.warn("captureScreenshot not available"); }')
+                try:
+                    from core.screen_capture import capture_desktop_screenshot
+                    data_url = capture_desktop_screenshot()
+                    self._execute_browser_command(
+                        f'if (window.addScreenshotFromDataUrl) {{ window.addScreenshotFromDataUrl("{data_url}"); }} '
+                        f'else if (window.captureScreenshot) {{ window.captureScreenshot(); }}'
+                    )
+                except Exception as cap_err:
+                    print(f"⚠️ Native capture error, falling back to browser: {cap_err}")
+                    self._execute_browser_command('if (window.captureScreenshot) { window.captureScreenshot(); } else { console.warn("captureScreenshot not available"); }')
             elif command == 'process_screenshots':
                 self._execute_browser_command('if (window.processScreenshots) { window.processScreenshots(); } else { console.warn("processScreenshots not available"); }')
             elif command == 'reset_screenshot_queue':

@@ -93,4 +93,13 @@ def test_clean_electrical_transcript():
     assert clean_electrical_transcript("Calculate line impudence") == "Calculate line impedance"
     assert clean_electrical_transcript("Motor wired in start delta") == "Motor wired in star-delta"
     assert clean_electrical_transcript("sink runner motor excitation") == "synchronous motor excitation"
+    assert clean_electrical_transcript("Fair and tea effect on transmission line") == "Ferranti effect on transmission line"
+    assert clean_electrical_transcript("Check coroner discharge at 400kV") == "Check corona discharge at 400kV"
+    assert clean_electrical_transcript("Substation uses din 11 transformer") == "Substation uses Dyn11 transformer"
+    assert clean_electrical_transcript("Analyze body plot stability") == "Analyze Bode plot stability"
+    assert clean_electrical_transcript("Apply nikes criterion") == "Apply Nyquist criterion"
+    assert clean_electrical_transcript("Use route her wits array") == "Use Routh-Hurwitz array"
+    assert clean_electrical_transcript("Measure power with to wattmeter method") == "Measure power with two-wattmeter method"
+    assert clean_electrical_transcript("Core perm ability and permit ability") == "Core permeability and permittivity"
+    assert clean_electrical_transcript("Grounded via peter sun coil") == "Grounded via Peterson coil"
 

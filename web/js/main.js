@@ -271,6 +271,10 @@ async function captureScreenshot() {
     return await stateManager.captureScreenshot();
 }
 
+function addScreenshotFromDataUrl(dataUrl) {
+    return stateManager.addScreenshotFromDataUrl(dataUrl);
+}
+
 async function processScreenshots() {
     return await stateManager.processScreenshots();
 }
@@ -547,6 +551,7 @@ window.getSystemStatus = getSystemStatus;
 window.switchVisionModel = switchVisionModel;
 window.toggleVisionMode = toggleVisionMode;
 window.captureScreenshot = captureScreenshot;
+window.addScreenshotFromDataUrl = addScreenshotFromDataUrl;
 window.processScreenshots = processScreenshots;
 window.resetScreenshotQueue = resetScreenshotQueue;
 window.toggleMicMute = toggleMicMute;

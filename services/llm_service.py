@@ -1,5 +1,6 @@
 import orjson
 import asyncio
+import re
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 from openai import AsyncOpenAI, APIStatusError, Timeout
@@ -17,6 +18,85 @@ import threading
 # key-rotation attempt.
 PROVIDER_TIMEOUT_SECONDS = 60.0
 PROVIDER_CONNECT_TIMEOUT_SECONDS = 10.0
+
+
+def calculate_max_tokens_budget(question: str, use_full_answers: bool) -> int:
+    """Dynamically budget output tokens so complex SVGs/derivations are never cut off."""
+    if not use_full_answers:
+        return 300
+    q_lower = (question or "").lower()
+    # Drawing/schematic questions need headroom for vector SVG paths + checklist (1200)
+    if any(w in q_lower for w in ("draw", "circuit", "schematic", "diagram", "single line", "sld", "whiteboard")):
+        return 1200
+    # Numerical, fault analysis, and stability derivations require step-by-step math (900)
+    if any(w in q_lower for w in ("calculate", "numerical", "find", "determine", "derive", "derivation", "formula",
+                                  "slip", "rpm", "kva", "mva", "power factor", "efficiency", "torque",
+                                  "fault", "sequence", "symmetrical", "bode", "nyquist", "transfer function", "wattmeter")):
+        return 900
+    # Conceptual / situational / design / HR (650)
+    return 650
+
+
+class ThinkTagFilter:
+    """Filters out <think>...</think> reasoning blocks from streaming LLM chunks."""
+    def __init__(self):
+        self.in_think = False
+        self.buffer = ""
+
+    def process(self, chunk: str) -> str:
+        if not chunk:
+            return ""
+        self.buffer += chunk
+        output = ""
+        while self.buffer:
+            if not self.in_think:
+                if "<think>" in self.buffer:
+                    before, _, after = self.buffer.partition("<think>")
+                    output += before
+                    self.buffer = after
+                    self.in_think = True
+                else:
+                    # Retain potential prefix of '<think>' at the end of buffer
+                    potential = "<think>"
+                    found_prefix = False
+                    for i in range(len(potential) - 1, 0, -1):
+                        prefix = potential[:i]
+                        if self.buffer.endswith(prefix):
+                            output += self.buffer[:-i]
+                            self.buffer = prefix
+                            found_prefix = True
+                            break
+                    if not found_prefix:
+                        output += self.buffer
+                        self.buffer = ""
+                    break
+            else:
+                if "</think>" in self.buffer:
+                    _, _, after = self.buffer.partition("</think>")
+                    self.buffer = after
+                    self.in_think = False
+                else:
+                    # Inside think tag: drop text, but hold potential prefix of '</think>'
+                    potential = "</think>"
+                    found_prefix = False
+                    for i in range(len(potential) - 1, 0, -1):
+                        prefix = potential[:i]
+                        if self.buffer.endswith(prefix):
+                            self.buffer = prefix
+                            found_prefix = True
+                            break
+                    if not found_prefix:
+                        self.buffer = ""
+                    break
+        return output
+
+    def flush(self) -> str:
+        if not self.in_think and self.buffer:
+            rem = self.buffer
+            self.buffer = ""
+            return rem
+        self.buffer = ""
+        return ""
 
 # --- Enhanced LLMManager Class ---
 
@@ -142,8 +222,8 @@ class LLMManager:
                     self._rotate_key()
                     print(f"🔄 Instant retry attempt {attempt+1}/{max_attempts} with next key for {self.provider_name}")
                 
-                # Build API params - use crisp max_tokens budget to prevent rambling and eliminate latency
-                max_tokens_budget = 700 if use_full_answers else 300
+                # Build API params - dynamically budget tokens to prevent cutoffs on SVGs/calculations
+                max_tokens_budget = calculate_max_tokens_budget(question, use_full_answers)
                 api_params = {
                     "messages": [{"role": "user", "content": prompt}],
                     "model": self.model_name,
@@ -170,6 +250,7 @@ class LLMManager:
                     api_params["stream"] = True
                     full_answer = ""
                     streaming_active = True
+                    think_filter = ThinkTagFilter()
                     try:
                         # Call API with fallback for unsupported reasoning_effort
                         try:
@@ -188,16 +269,24 @@ class LLMManager:
                             if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                                 content_chunk = chunk.choices[0].delta.content
                                 full_answer += content_chunk
-                                if stream_callback:
+                                clean_chunk = think_filter.process(content_chunk)
+                                if clean_chunk and stream_callback:
                                     try:
-                                        callback_result = await stream_callback(content_chunk, "chunk")
+                                        callback_result = await stream_callback(clean_chunk, "chunk")
                                         if callback_result is False:
                                             streaming_active = False
                                             break
                                     except Exception as e:
                                         streaming_active = False
                                         break
-                        answer = full_answer.strip()
+                        # Flush any remaining text not inside a think block
+                        flushed = think_filter.flush()
+                        if flushed and stream_callback and streaming_active:
+                            try:
+                                await stream_callback(flushed, "chunk")
+                            except Exception:
+                                pass
+                        answer = re.sub(r'<think>.*?</think>', '', full_answer, flags=re.DOTALL).strip()
 
                     except Exception as stream_err:
                         print(f"⚠️ Streaming failed for {self.provider_name} key #{self._key_index}: {stream_err}")
@@ -218,7 +307,8 @@ class LLMManager:
                             )
                         else:
                             raise req_err
-                    answer = chat_completion.choices[0].message.content.strip()
+                    raw_answer = chat_completion.choices[0].message.content or ""
+                    answer = re.sub(r'<think>.*?</think>', '', raw_answer, flags=re.DOTALL).strip()
                 
                 # Success! Add completed conversation exchange and return
                 if self.context_manager:

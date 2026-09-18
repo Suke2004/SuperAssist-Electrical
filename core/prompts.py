@@ -34,13 +34,13 @@ def _truncate(text: Optional[str], limit: int = 700) -> str:
     return text[:limit].rsplit(" ", 1)[0] + " …[truncated]"
 
 
-def build_unlimited_candidate_profile(persistent_context: dict, include_personal_details: bool = True) -> str:
+def build_unlimited_candidate_profile(persistent_context: dict, include_personal_details: bool = True, full_resume: bool = True) -> str:
     """Build comprehensive candidate profile with persistent context.
 
     include_personal_details=False omits the resume and job-description blocks
     (driven by PERSONALIZE_ANSWERS). Identity fields (name/company/role/focus)
-    are always kept. Optional keys (`interview_stage`, `custom_instructions`) are
-    included only when present, so older context snapshots remain compatible.
+    are always kept. When full_resume=False (on analytical/technical viva questions),
+    massive resumes are trimmed to a clean preview so prompt tokens drop and TTFT stays <0.5s.
     """
     profile_parts = []
 
@@ -67,13 +67,19 @@ def build_unlimited_candidate_profile(persistent_context: dict, include_personal
     if persistent_context.get('custom_instructions'):
         profile_parts.append(f"Candidate's Custom Instructions: {persistent_context['custom_instructions']}")
 
-    # Complete resume content
+    # Resume content (full for personal/project questions, concise for technical viva)
     if include_personal_details and persistent_context.get('complete_resume'):
-        profile_parts.append(f"COMPLETE RESUME/BACKGROUND:\n{persistent_context['complete_resume']}")
+        resume_text = str(persistent_context['complete_resume']).strip()
+        if not full_resume and len(resume_text) > 600:
+            resume_text = resume_text[:600].rsplit(" ", 1)[0] + " …[trimmed for technical speed]"
+        profile_parts.append(f"COMPLETE RESUME/BACKGROUND:\n{resume_text}")
 
-    # Complete job description
+    # Job description
     if include_personal_details and persistent_context.get('complete_job_description'):
-        profile_parts.append(f"COMPLETE JOB DESCRIPTION/REQUIREMENTS:\n{persistent_context['complete_job_description']}")
+        jd_text = str(persistent_context['complete_job_description']).strip()
+        if not full_resume and len(jd_text) > 400:
+            jd_text = jd_text[:400].rsplit(" ", 1)[0] + " …[trimmed for technical speed]"
+        profile_parts.append(f"COMPLETE JOB DESCRIPTION/REQUIREMENTS:\n{jd_text}")
 
     return "\n".join(profile_parts) + "\n" if profile_parts else ""
 
@@ -147,10 +153,13 @@ def _mandatory_rules() -> str:
 
 🧭 TEMPLATE SELECTION:
 - Concept / Difference / "Are they both machines?" → CONCEPT template.
-- Numerical / Calculation → CIRCUIT & MACHINE NUMERICAL template.
+- Numerical / Calculation / Derivation → CIRCUIT & MACHINE NUMERICAL template.
 - Situational / Plant Troubleshooting / Faults → SITUATION / TROUBLESHOOTING template.
 - Design & Sizing → DESIGN / SELECTION / SIZING template.
-- Drawing circuit / schematic → DRAW-CIRCUIT template.
+- Drawing circuit / schematic / SLD → DRAW-CIRCUIT template.
+- Power Systems / Grid / Protection / Faults → POWER SYSTEMS & GRID PROTECTION template.
+- Control Systems / Stability / Bode / Nyquist → CONTROL SYSTEMS template.
+- Measurements / Wattmeter / Bridge / CT-PT → ELECTRICAL MEASUREMENTS & INSTRUMENTATION template.
 - PLC / SCADA / Automation → PLC / SCADA / DCS template.
 - Resume projects / Viva → RESUME & PROJECT VIVA template.
 - Plant management / delays → MANAGERIAL & PROJECT OWNERSHIP template.
@@ -274,17 +283,86 @@ CRITICAL SVG SCHEMATIC RULES:
   * Resistor: `<path d="M 150 80 l 4 -8 l 8 16 l 8 -16 l 8 16 l 8 -16 l 4 8" fill="none" stroke="#38bdf8" stroke-width="2"/>`
   * DC Armature: `<circle cx="200" cy="140" r="20" fill="none" stroke="#38bdf8" stroke-width="2"/><text x="200" y="146" fill="#38bdf8" font-size="14" font-weight="bold" text-anchor="middle">A</text><rect x="194" y="116" width="12" height="6" fill="#e2e8f0"/><rect x="194" y="158" width="12" height="6" fill="#e2e8f0"/>`
   * Transformer Core: two parallel dashed lines `<line stroke="#94a3b8" stroke-width="2" stroke-dasharray="4 2"/>` between primary and secondary coils.
+  * Circuit Breaker (SLD): `<rect x="250" y="100" width="24" height="24" fill="none" stroke="#38bdf8" stroke-width="2"/><line x1="250" y1="100" x2="274" y2="124" stroke="#38bdf8" stroke-width="2"/><line x1="250" y1="124" x2="274" y2="100" stroke="#38bdf8" stroke-width="2"/>`
+  * Disconnector / Isolator (SLD): `<line x1="180" y1="112" x2="200" y2="112" stroke="#38bdf8" stroke-width="2"/><line x1="200" y1="112" x2="218" y2="98" stroke="#38bdf8" stroke-width="2"/><line x1="220" y1="112" x2="240" y2="112" stroke="#38bdf8" stroke-width="2"/>`
+  * Busbar (SLD): `<line x1="50" y1="60" x2="550" y2="60" stroke="#f59e0b" stroke-width="4"/><text x="60" y="50" fill="#f59e0b" font-size="12" font-weight="bold">MAIN BUS 400 kV</text>`
   * Colors for Dark HUD: stroke="#38bdf8" (sky-blue) for wires/coils, fill="#f8fafc" for labels, stroke="#fbbf24" for shunt branches.
 
 ```svg
 <svg width="650" height="260" viewBox="0 0 650 260" xmlns="http://www.w3.org/2000/svg">
-  <!-- Clean schematic with proper curved inductors, zigzag resistors, or armature circle -->
+  <!-- Clean schematic with proper curved inductors, zigzag resistors, armature circle, or substation SLD -->
 </svg>
 ```
 
 ### 🔍 3. Examiner Checklist
-- **Key Features Checked:** [e.g. dot polarity markers, core branch placement, back-EMF arrow, referred parameters]
+- **Key Features Checked:** [e.g. dot polarity markers, core branch placement, back-EMF arrow, referred parameters, breaker-isolator interlock]
 - **Common Drawing Error:** [the typical mistake that costs marks on paper]
+
+{SECTION_DIVIDER}"""
+
+
+def _power_systems_template() -> str:
+    return f"""{SECTION_DIVIDER}
+⚡ **FOR POWER SYSTEMS & GRID PROTECTION QUESTIONS:**
+(e.g. "symmetrical components", "fault analysis", "distance relay reach zones", "differential slope", "Ferranti effect", "surge impedance loading", "vector group Dyn11")
+
+> **💬 WHAT TO SAY OUT LOUD TO THE INTERVIEWER:**
+> "[2-3 direct sentences stating governing relation, sequence network behavior, or protection zone coordination — e.g. 'In a line-to-ground fault, positive, negative, and zero sequence networks connect in series, so fault current is 3·Ea / (Z1 + Z2 + Z0 + 3Zn). For line protection, Zone 1 covers 80-85% of the line instantaneously with zero intentional delay.']"
+
+### ⚡ 1. Governing Relations & Sequence Analysis
+- **Sequence Network / Symmetrical Formulation:** [Series for LG, parallel for LLG, only positive sequence for balanced 3-phase fault; Surge impedance Z₀ = √(L/C)]
+- **Governing Equations:** [Fault MVA = Base MVA / Z_pu; Swing equation M(d²δ/dt²) = Pm - Pe; Ferranti voltage rise ΔV ≈ (ω²·l²·V)/(2·c²)]
+
+### 🛡️ 2. Protection Scheme & Substation Practice
+- **Relay Coordination / Zone Reach:** [Distance relay Zone 1 (80% instant), Zone 2 (120% at 0.3s), Zone 3 (150-200% reverse/forward backup at 0.6s); Differential percentage bias slope Idiff > k·Ibias]
+- **Neutral Earthing & Grid Standards:** [Solid vs resistance earthing vs Peterson coil (resonance grounding); IEEE/IEC fault clearance time limits]
+
+### 📌 3. Examiner Trap
+- **Typical Viva Trap:** [e.g. "Why does Ferranti effect occur only at no-load or light load? Because capacitive charging current leading voltage causes negative reactive IX_L drop, raising receiving end voltage Vr > Vs."]
+
+{SECTION_DIVIDER}"""
+
+
+def _control_systems_template() -> str:
+    return f"""{SECTION_DIVIDER}
+🎛️ **FOR CONTROL SYSTEMS & STABILITY QUESTIONS:**
+(e.g. "Bode plot stability", "Nyquist criterion", "gain margin & phase margin", "Routh-Hurwitz array", "state-space", "PID tuning")
+
+> **💬 WHAT TO SAY OUT LOUD TO THE INTERVIEWER:**
+> "[2 natural sentences stating the open-loop transfer function behavior, gain/phase crossover frequencies, and stability margins — e.g. 'For a stable minimum-phase system, both Gain Margin and Phase Margin must be positive. A typical industrial control system targets Phase Margin between 30° and 60° to balance speed and damping.']"
+
+### 📈 1. Transfer Function & Stability Analysis
+- **Characteristic Equation / Transfer Function:** [Open-loop G(s)H(s) or closed-loop characteristic equation 1 + G(s)H(s) = 0]
+- **Stability Metrics:** [Gain Crossover Frequency (ωgc where |G(jω)| = 1), Phase Crossover Frequency (ωpc where ∠G(jω) = -180°), Gain Margin (GM in dB), Phase Margin (PM = 180° + ∠G(jωgc))]
+
+### 🛠️ 2. Physical Intuition & Practical Controller Tuning
+- **Time/Frequency Domain Correlation:** [Higher damping ratio ζ reduces peak overshoot; Phase margin directly governs closed-loop damping]
+- **PID Tuning Dynamics:** [Proportional reduces rise time; Integral eliminates steady-state offset (Type 1 error); Derivative injects phase lead and dampens oscillations]
+
+### 🔍 3. Examiner Trap
+- **Common Trap:** [e.g. "Does non-minimum phase system have right-half plane zeros? Yes, causing initial undershoot and adding phase lag without gain increase, restricting maximum stable bandwidth."]
+
+{SECTION_DIVIDER}"""
+
+
+def _measurements_template() -> str:
+    return f"""{SECTION_DIVIDER}
+🔬 **FOR ELECTRICAL MEASUREMENTS & INSTRUMENTATION QUESTIONS:**
+(e.g. "two-wattmeter method", "CT ratio & phase angle error", "Megger insulation test", "Kelvin double bridge", "transducers")
+
+> **💬 WHAT TO SAY OUT LOUD TO THE INTERVIEWER:**
+> "[2 direct sentences stating the measuring principle, connection diagram, and formula — e.g. 'In the two-wattmeter method on a balanced 3-phase load, total active power is W1 + W2, and power factor angle satisfies tanφ = √3(W1 - W2)/(W1 + W2). When one wattmeter reads zero, the load power factor is exactly 0.5.']"
+
+### 📐 1. Governing Formula & Bridge/Meter Equations
+- **Governing Relations:** [W1 = VL·IL·cos(30-φ), W2 = VL·IL·cos(30+φ); Bridge balance condition R1·R4 = R2·R3; Kelvin double bridge eliminates lead resistance]
+- **Power Factor Scenarios:** [pf = 1: W1 = W2 > 0; pf = 0.5: W2 = 0; pf < 0.5: W2 reads negative, requires potential coil reversal]
+
+### 🛡️ 2. Accuracy, Errors & Safety Standards
+- **Instrument Transformer Errors:** [Ratio error from magnetizing current component; phase angle error from core loss and secondary leakage; Rated burden in VA]
+- **Testing & Safety Practice:** [Megger test: 1 MΩ rule or (kV + 1) MΩ; Earth tester: 62% rule fall-of-potential; CAT III/IV probe rating]
+
+### 🔍 3. Examiner Probe
+- **Likely Follow-up:** [e.g. "Why must you NEVER open-circuit the secondary of an energized CT? With zero opposing secondary MMF, entire primary current becomes magnetizing current, producing lethal kilovolt spikes and explosive core saturation."]
 
 {SECTION_DIVIDER}"""
 
@@ -400,9 +478,15 @@ def _select_relevant_templates(question: str) -> str:
     # Determine primary template matching the question
     if any(w in q_lower for w in ("draw", "circuit", "schematic", "diagram", "single line", "sld", "whiteboard")):
         primary = _drawing_template()
-    elif any(w in q_lower for w in ("calculate", "numerical", "find", "determine", "slip", "rpm", "kva", "mva", "power factor", "efficiency", "torque")) and any(c.isdigit() for c in q_lower):
+    elif any(w in q_lower for w in ("fault", "sequence", "symmetrical", "ferranti", "distance relay", "differential relay", "surge impedance", "vector group", "dyn11", "corona", "busbar", "substation", "transmission line", "grid")):
+        primary = _power_systems_template()
+    elif any(w in q_lower for w in ("bode", "nyquist", "gain margin", "phase margin", "routh", "hurwitz", "transfer function", "state space", "pid", "root locus", "damping ratio")):
+        primary = _control_systems_template()
+    elif any(w in q_lower for w in ("wattmeter", "two wattmeter", "instrumentation", "measurement", "kelvin double bridge", "megger", "ct error", "pt error", "burden")):
+        primary = _measurements_template()
+    elif any(w in q_lower for w in ("calculate", "numerical", "find", "determine", "derive", "derivation", "formula", "slip", "rpm", "kva", "mva", "power factor", "efficiency", "torque")):
         primary = _numerical_template()
-    elif any(w in q_lower for w in ("trip", "trips", "tripped", "fault", "troubleshoot", "fails", "smoke", "hot", "vibration", "alarm")):
+    elif any(w in q_lower for w in ("trip", "trips", "tripped", "troubleshoot", "fails", "smoke", "hot", "vibration", "alarm")):
         primary = _situation_template()
     elif any(w in q_lower for w in ("size", "sizing", "select", "rating", "cable", "breaker", "ampacity", "derating")):
         primary = _design_template()
@@ -427,6 +511,9 @@ def _select_relevant_templates(question: str) -> str:
 - SITUATION / TROUBLESHOOTING: real plant example (water pump/conveyor), measure→isolate→verify.
 - DESIGN / SELECTION / SIZING: load calculation, cable derating (IS 732/IEC), MCCB rating.
 - DRAW-CIRCUIT: clean vector SVG, curved inductor loops, brush armatures, no plain boxes.
+- POWER SYSTEMS & GRID PROTECTION: symmetrical components, fault currents, distance/differential relaying, Ferranti effect.
+- CONTROL SYSTEMS: Bode/Nyquist stability, gain & phase margins, Routh-Hurwitz, PID controller tuning.
+- ELECTRICAL MEASUREMENTS & INSTRUMENTATION: two-wattmeter method, CT/PT ratio and phase errors, Megger test.
 - PLC / SCADA / DCS: protocol specifications, field→controller architecture, termination.
 - RESUME & PROJECT VIVA: real hardware hurdles (MOSFET ringing, snubber), topology defense.
 - MANAGERIAL & PROJECT OWNERSHIP: plant shutdown delays, toolbox talks with senior technicians.
@@ -465,7 +552,9 @@ def get_interview_answer_prompt(question: str, context_manager: PersistentContex
     # PERSISTENT CANDIDATE CONTEXT
     prompt_parts.append("=" * 80)
     prompt_parts.append("🔒 PERSISTENT CANDIDATE CONTEXT:")
-    prompt_parts.append(build_unlimited_candidate_profile(persistent_context, settings.PERSONALIZE_ANSWERS))
+    q_lower = (question or "").lower()
+    is_personal_q = any(w in q_lower for w in ("project", "thesis", "internship", "prototype", "hardware", "resume", "experience", "background", "introduce", "yourself", "career", "tell me about"))
+    prompt_parts.append(build_unlimited_candidate_profile(persistent_context, settings.PERSONALIZE_ANSWERS, full_resume=is_personal_q))
     prompt_parts.append("=" * 80)
 
     # Recent conversation history

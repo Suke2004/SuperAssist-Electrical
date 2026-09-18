@@ -359,6 +359,23 @@ class ScreenshotService {
         this.programmingLanguages = languages;
         console.log('💻 Programming languages set:', this.programmingLanguages);
     }
+
+    addFromDataUrl(dataUrl) {
+        if (!dataUrl) return false;
+        if (this.screenshotQueue.length >= this.maxScreenshots) {
+            this.showNotification('❌ Queue Full', 'Remove some screenshots before taking more', 'error');
+            return false;
+        }
+        const screenshot = {
+            id: Date.now(),
+            dataUrl: dataUrl,
+            timestamp: new Date(),
+            size: Math.round((dataUrl.length * 3) / 4)
+        };
+        this.addToQueue(screenshot);
+        this.showNotification('📸 Screenshot Captured (Stealth)', `Added to queue (${this.screenshotQueue.length}/${this.maxScreenshots}) - Alt+P to process`, 'success');
+        return true;
+    }
     
     // Screenshot capture methods
     async captureScreenshot() {
@@ -373,6 +390,20 @@ class ScreenshotService {
         }
         
         this.isCapturing = true;
+
+        // Try native backend capture first (stealth - zero browser popups or sharing banners)
+        try {
+            const resp = await fetch('/api/capture_screenshot', { method: 'POST' });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data && data.success && data.dataUrl) {
+                    this.isCapturing = false;
+                    return this.addFromDataUrl(data.dataUrl);
+                }
+            }
+        } catch (nativeErr) {
+            console.warn('⚠️ Native capture fetch failed, falling back to WebRTC:', nativeErr);
+        }
         
         try {
             // Try to use existing screen video track first

@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import dotenv_values
 
@@ -7,8 +8,8 @@ class Settings(BaseSettings):
     Manages application settings and loads them from a .env file.
     All defaults should be production-safe values that match .env file settings.
     """
-    # Required API Keys (no defaults - must be provided)
-    DEEPGRAM_API_KEY: str
+    # API Keys (optional default to prevent fatal crash if unconfigured)
+    DEEPGRAM_API_KEY: Optional[str] = ""
 
     # ================= Interview copilot configuration ===================
 

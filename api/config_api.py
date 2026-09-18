@@ -331,3 +331,16 @@ async def make_opaque():
     else:
         raise HTTPException(status_code=400, detail="Failed to set transparency")
 
+
+@router.post("/api/capture_screenshot")
+async def api_capture_screenshot():
+    """Capture desktop screenshot silently on the backend without browser permission dialogs."""
+    try:
+        from core.screen_capture import capture_desktop_screenshot
+        data_url = capture_desktop_screenshot()
+        return {"success": True, "dataUrl": data_url}
+    except Exception as e:
+        print(f"❌ Native screen capture failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+

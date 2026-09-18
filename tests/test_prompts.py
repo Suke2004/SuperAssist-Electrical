@@ -55,11 +55,41 @@ class TestPromptBuilders:
         assert "SITUATION / TROUBLESHOOTING" in prompt
         assert "DESIGN / SELECTION / SIZING" in prompt
         assert "DRAW-CIRCUIT" in prompt
+        assert "POWER SYSTEMS & GRID PROTECTION" in prompt
+        assert "CONTROL SYSTEMS" in prompt
+        assert "ELECTRICAL MEASUREMENTS & INSTRUMENTATION" in prompt
         assert "PLC / SCADA / DCS" in prompt
         assert "RESUME & PROJECT VIVA" in prompt
         assert "MANAGERIAL & PROJECT OWNERSHIP" in prompt
         assert "SAFETY MINDSET & ETHICS" in prompt
         assert "HR & CULTURAL FIT" in prompt
+
+    def test_domain_template_routing(self):
+        ctx = _make_context()
+        # Power systems routing
+        ps_prompt = get_interview_answer_prompt("Explain symmetrical fault and distance relay Zone 1 reach", ctx)
+        assert "POWER SYSTEMS & GRID PROTECTION" in ps_prompt
+        assert "Sequence Network / Symmetrical Formulation" in ps_prompt
+
+        # Control systems routing
+        cs_prompt = get_interview_answer_prompt("How do you find gain margin and phase margin from a Bode plot?", ctx)
+        assert "CONTROL SYSTEMS & STABILITY" in cs_prompt
+        assert "Gain Crossover Frequency" in cs_prompt
+
+        # Measurements routing
+        meas_prompt = get_interview_answer_prompt("Explain two-wattmeter method and CT ratio error", ctx)
+        assert "ELECTRICAL MEASUREMENTS & INSTRUMENTATION" in meas_prompt
+        assert "two-wattmeter method" in meas_prompt
+
+        # Symbolic numerical derivation without explicit digits
+        deriv_prompt = get_interview_answer_prompt("Derive the condition for maximum torque in an induction motor", ctx)
+        assert "CIRCUIT & MACHINE NUMERICAL" in deriv_prompt
+        assert "Governing Relation" in deriv_prompt
+
+        # SLD / Circuit drawing
+        draw_prompt = get_interview_answer_prompt("Draw single line diagram of 400kV substation bay", ctx)
+        assert "DRAW-CIRCUIT" in draw_prompt
+        assert "Busbar (SLD)" in draw_prompt
 
     def test_personalization_toggle_removes_resume(self):
         ctx = _make_context(resume="SECRET-RESUME-MARKER")

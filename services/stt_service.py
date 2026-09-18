@@ -102,6 +102,30 @@ def clean_electrical_transcript(transcript: str) -> str:
     transcript = re.sub(r'\b(sign\s+you\s+saw\s+idle|sine\s+us\s+oid\s+al)\b', 'sinusoidal', transcript, flags=re.IGNORECASE)
     transcript = re.sub(r'\bk\s*bar\b', 'kVAR', transcript, flags=re.IGNORECASE)
 
+    # Power Systems & Relaying
+    transcript = re.sub(r'\b(fair\s*and\s*tea|ferrant)\s+(effect)?\b', 'Ferranti effect', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\b(coroner|karona)\s+discharge\b', 'corona discharge', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\b(peter\s*sun|peterson)\s+(coil|call)\b', 'Peterson coil', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\b(d\s*y\s*n\s*eleven|din\s*11|din\s*eleven|d\s*y\s*n\s*11)\b', 'Dyn11', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\bsearch\s+impedance\b', 'surge impedance', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\bsub\s*synchronous\s*resonance\b', 'subsynchronous resonance', transcript, flags=re.IGNORECASE)
+
+    # Control Systems & Stability
+    transcript = re.sub(r'\b(body|boat|bowed)\s+plot\b', 'Bode plot', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\b(nikes|night\s*quest|mike\s*quist)\s+criterion\b', 'Nyquist criterion', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\b(route\s*her\s*wits|rough\s*hurwitz|rout\s*hurwitz)\b', 'Routh-Hurwitz', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\btransfer\s+junction\b', 'transfer function', transcript, flags=re.IGNORECASE)
+
+    # Fields & Transforms
+    transcript = re.sub(r'\bperm\s*ability\b', 'permeability', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\bpermit\s*ability\b', 'permittivity', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\bclark\s+transform\b', 'Clarke transform', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\bspark\s+transform\b', 'Park transform', transcript, flags=re.IGNORECASE)
+
+    # Measurements & Bridges
+    transcript = re.sub(r'\b(to|too)\s+watt\s*meters?\b', 'two-wattmeter', transcript, flags=re.IGNORECASE)
+    transcript = re.sub(r'\bcalvin\s+double\s+bridge\b', 'Kelvin double bridge', transcript, flags=re.IGNORECASE)
+
     # Shunt/series motor misheard as mood or mower
     transcript = re.sub(r'\b(shunt|series)\s+(mood|mower)\b', r'\1 motor', transcript, flags=re.IGNORECASE)
 
@@ -207,7 +231,12 @@ class DeepgramManager:
             "substation", "switchgear", "circuit breaker", "MCCB", "MCB",
             "ACB", "VCB", "SF6", "Buchholz relay", "thermal overload",
             "overcurrent", "earth fault", "ground fault", "LOTO", "busbar",
-            "fault current", "short circuit",
+            "fault current", "short circuit", "distance relay", "differential relay",
+            
+            # Power Systems, Controls & Measurements
+            "Ferranti effect", "Bode plot", "Nyquist criterion", "Routh-Hurwitz",
+            "Dyn11", "Peterson coil", "surge impedance", "symmetrical components",
+            "two wattmeter", "Kelvin bridge", "Clarke transform", "Park transform",
             
             # Interview audio verification
             "mic check", "check 1 2 3", "audible", "testing"
@@ -387,7 +416,21 @@ class DeepgramManager:
                 "curt off law:Kirchhoff law",
                 "kirchoff:Kirchhoff",
                 "sign you saw idle:sinusoidal",
-                "k bar:kVAR"
+                "k bar:kVAR",
+                "fair and tea effect:Ferranti effect",
+                "ferrant effect:Ferranti effect",
+                "coroner discharge:corona discharge",
+                "peter sun coil:Peterson coil",
+                "din 11:Dyn11",
+                "body plot:Bode plot",
+                "boat plot:Bode plot",
+                "nikes criterion:Nyquist criterion",
+                "night quest criterion:Nyquist criterion",
+                "route her wits:Routh-Hurwitz",
+                "rough hurwitz:Routh-Hurwitz",
+                "perm ability:permeability",
+                "permit ability:permittivity",
+                "clark transform:Clarke transform"
             ]
         )
         
